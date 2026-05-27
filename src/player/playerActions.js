@@ -1,17 +1,18 @@
 import { COLS, ROWS, WALL, FLOOR, STAIRS, TRAP, TREASURE, MAX_FLOOR } from '../constants.js';
-import { applyNoise }          from '../systems/noise.js';
-import { revealAt, echoFlood } from '../systems/visibility.js';
-import { ENEMY_CONFIG }        from '../enemies/enemyTypes.js';
+import { applyNoise }           from '../systems/noise.js';
+import { revealAt, echoFlood }  from '../systems/visibility.js';
+import { ENEMY_CONFIG }         from '../enemies/enemyTypes.js';
+import {
+  playStep, playBump, playAttack, playHurt,
+  playTrap, playTreasure, playStairs, playEcho,
+} from '../systems/audio.js';
 
 // ── combat ────────────────────────────────────────────────────────────────────
-/**
- * Player attacks enemy at index eidx.
- * Mutates G.enemies, G.player.
- */
 export function doCombat(G, eidx, { pushMsg, endGame }) {
   const e = G.enemies[eidx];
   e.hp--;
   applyNoise(G, 50, G.player.x, G.player.y);
+  playAttack();
   pushMsg(`\u2694 ${ENEMY_CONFIG[e.type].name} attaqu\u00e9`, 'danger');
 
   if (e.hp <= 0) {
@@ -20,17 +21,13 @@ export function doCombat(G, eidx, { pushMsg, endGame }) {
     pushMsg('Ennemi \u00e9limin\u00e9.', 'good');
   } else {
     G.player.hp--;
+    playHurt();
     pushMsg('Bless\u00e9 ! \u22121 HP', 'danger');
     if (G.player.hp <= 0) endGame(false);
   }
 }
 
 // ── move ──────────────────────────────────────────────────────────────────────
-/**
- * Attempt to move player by (dx, dy).
- * Handles wall bumps, tile events (trap / treasure / stairs), and melee.
- * startFloor is passed as callback to avoid circular dependency with floorManager.
- */
 export function doMove(G, dx, dy, { pushMsg, endGame, startFloor }) {
   const { player, grid } = G;
   const nx = player.x + dx;
@@ -40,12 +37,14 @@ export function doMove(G, dx, dy, { pushMsg, endGame, startFloor }) {
 
   if (grid[ny][nx] === WALL) {
     applyNoise(G, 5, player.x, player.y);
+    playBump();
     return;
   }
 
   player.x = nx;
   player.y = ny;
   applyNoise(G, 8, nx, ny);
+  playStep();
   revealAt(G.vis, nx, ny, 2.5, 0.4, performance.now());
 
   const tile = grid[ny][nx];
@@ -56,6 +55,7 @@ export function doMove(G, dx, dy, { pushMsg, endGame, startFloor }) {
     if (!revealed || Math.random() < 0.4) {
       player.hp--;
       applyNoise(G, 40, nx, ny);
+      playTrap();
       pushMsg('\u26a1 PI\u00c8GE ! \u22121 HP', 'danger');
       if (player.hp <= 0) { grid[ny][nx] = FLOOR; endGame(false); return; }
     } else {
@@ -69,6 +69,7 @@ export function doMove(G, dx, dy, { pushMsg, endGame, startFloor }) {
     const bonus = 40 + (Math.random() * 110 | 0);
     player.score += bonus;
     grid[ny][nx] = FLOOR;
+    playTreasure();
     pushMsg(`\u25c6 Tr\u00e9sor ! +${bonus}`, 'good');
   }
 
@@ -76,6 +77,7 @@ export function doMove(G, dx, dy, { pushMsg, endGame, startFloor }) {
   if (tile === STAIRS) {
     const nextFloor = player.floor + 1;
     if (nextFloor > MAX_FLOOR) { endGame(true); return; }
+    playStairs();
     pushMsg(`\u2193 Descente \u2014 \u00c9tage ${nextFloor}`, 'system');
     const [savedScore, savedHp] = [player.score, player.hp];
     setTimeout(() => startFloor(nextFloor, savedScore, savedHp), 350);
@@ -88,10 +90,6 @@ export function doMove(G, dx, dy, { pushMsg, endGame, startFloor }) {
 }
 
 // ── echo ──────────────────────────────────────────────────────────────────────
-/**
- * Emit an echolocation pulse from player position.
- * Returns true if an echo was consumed, false if no charges available.
- */
 export function doEcho(G, { pushMsg }) {
   if (G.player.echoes <= 0) {
     pushMsg("Pas d'\u00e9cho disponible\u2026", 'soft');
@@ -99,6 +97,7 @@ export function doEcho(G, { pushMsg }) {
   }
 
   G.player.echoes--;
+  playEcho();
   const now    = performance.now();
   const radius = 10 + G.player.floor * 1.5;
 
