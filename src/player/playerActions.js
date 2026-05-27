@@ -11,7 +11,6 @@ import {
 export function doCombat(G, eidx, { pushMsg, endGame }) {
   const e = G.enemies[eidx];
   e.hp--;
-  applyNoise(G, 50, G.player.x, G.player.y);
   playAttack();
   pushMsg(`\u2694 ${ENEMY_CONFIG[e.type].name} attaqu\u00e9`, 'danger');
 
@@ -20,10 +19,11 @@ export function doCombat(G, eidx, { pushMsg, endGame }) {
     G.player.score += 20 + G.player.floor * 10;
     pushMsg('Ennemi \u00e9limin\u00e9.', 'good');
   } else {
+    // contre-attaque
     G.player.hp--;
     playHurt();
     pushMsg('Bless\u00e9 ! \u22121 HP', 'danger');
-    if (G.player.hp <= 0) endGame(false);
+    if (G.player.hp <= 0) { endGame(false); }
   }
 }
 
@@ -41,6 +41,15 @@ export function doMove(G, dx, dy, { pushMsg, endGame, startFloor }) {
     return;
   }
 
+  // ── ennemi sur la case cible → combat SANS déplacer le joueur
+  const hitIdx = G.enemies.findIndex(e => e.x === nx && e.y === ny);
+  if (hitIdx >= 0) {
+    applyNoise(G, 30, player.x, player.y);
+    doCombat(G, hitIdx, { pushMsg, endGame });
+    return;   // le joueur reste sur sa case
+  }
+
+  // ── déplacement
   player.x = nx;
   player.y = ny;
   applyNoise(G, 8, nx, ny);
@@ -49,7 +58,7 @@ export function doMove(G, dx, dy, { pushMsg, endGame, startFloor }) {
 
   const tile = grid[ny][nx];
 
-  // ── trap
+  // ── piège
   if (tile === TRAP) {
     const revealed = G.vis[(ny * COLS + nx) * 2] > 0.3;
     if (!revealed || Math.random() < 0.4) {
@@ -64,7 +73,7 @@ export function doMove(G, dx, dy, { pushMsg, endGame, startFloor }) {
     grid[ny][nx] = FLOOR;
   }
 
-  // ── treasure
+  // ── trésor
   if (tile === TREASURE) {
     const bonus = 40 + (Math.random() * 110 | 0);
     player.score += bonus;
@@ -73,7 +82,7 @@ export function doMove(G, dx, dy, { pushMsg, endGame, startFloor }) {
     pushMsg(`\u25c6 Tr\u00e9sor ! +${bonus}`, 'good');
   }
 
-  // ── stairs
+  // ── escaliers
   if (tile === STAIRS) {
     const nextFloor = player.floor + 1;
     if (nextFloor > MAX_FLOOR) { endGame(true); return; }
@@ -81,12 +90,7 @@ export function doMove(G, dx, dy, { pushMsg, endGame, startFloor }) {
     pushMsg(`\u2193 Descente \u2014 \u00c9tage ${nextFloor}`, 'system');
     const [savedScore, savedHp] = [player.score, player.hp];
     setTimeout(() => startFloor(nextFloor, savedScore, savedHp), 350);
-    return;
   }
-
-  // ── enemy collision
-  const hitIdx = G.enemies.findIndex(e => e.x === nx && e.y === ny);
-  if (hitIdx >= 0) doCombat(G, hitIdx, { pushMsg, endGame });
 }
 
 // ── echo ──────────────────────────────────────────────────────────────────────
