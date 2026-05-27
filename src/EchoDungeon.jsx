@@ -3,22 +3,23 @@ import {
   CW, CH, MAX_ECHOES, ECHO_REGEN, ENEMY_SPEED, MOVE_CD,
   MENU, PLAY, DEAD, WIN,
 } from './constants.js';
-import { buildFloor }                  from './levels/floorManager.js';
-import { runAiTick }                   from './enemies/enemyAI.js';
-import { doMove, doEcho }              from './player/playerActions.js';
-import { renderFrame }                 from './effects/renderer.js';
-import { HUD }                         from './ui/HUD.jsx';
-import { DPad }                        from './ui/DPad.jsx';
-import { MenuScreen, GameOverScreen }  from './ui/screens.jsx';
+import { buildFloor }                 from './levels/floorManager.js';
+import { runAiTick }                  from './enemies/enemyAI.js';
+import { doMove, doEcho }             from './player/playerActions.js';
+import { renderFrame }                from './effects/renderer.js';
+import { initAudio }                  from './systems/audio.js';
+import { HUD }                        from './ui/HUD.jsx';
+import { DPad }                       from './ui/DPad.jsx';
+import { MenuScreen, GameOverScreen } from './ui/screens.jsx';
 
 const FONT = "'Courier New', Courier, monospace";
 
 export default function EchoDungeon() {
   const cvs    = useRef(null);
-  const G      = useRef(null);           // full game world (mutated directly)
+  const G      = useRef(null);
   const phase  = useRef(MENU);
   const raf    = useRef(null);
-  const TS     = useRef({ enemy: 0, echo: 0, move: 0 });  // timestamps
+  const TS     = useRef({ enemy: 0, echo: 0, move: 0 });
   const msgBuf = useRef([]);
 
   const [ui, setUi] = useState({
@@ -28,7 +29,6 @@ export default function EchoDungeon() {
     msgs: [],
   });
 
-  // ── sync mutable state → React display ─────────────────────────────────
   const syncUi = useCallback(() => {
     if (!G.current) return;
     const p = G.current.player;
@@ -50,7 +50,6 @@ export default function EchoDungeon() {
     ];
   }, []);
 
-  // ── end game ────────────────────────────────────────────────────────────
   const endGame = useCallback((win) => {
     phase.current = win ? WIN : DEAD;
     cancelAnimationFrame(raf.current);
@@ -61,12 +60,11 @@ export default function EchoDungeon() {
     }));
   }, []);
 
-  // ── start / transition floor ────────────────────────────────────────────
   const startFloor = useCallback((floor, score = 0, hp = 5) => {
     G.current     = buildFloor(floor, score, hp);
     phase.current = PLAY;
     msgBuf.current = [{
-      text: `Étage ${floor} — L'obscurité vous enveloppe.`,
+      text: `\u00c9tage ${floor} \u2014 L'obscurit\u00e9 vous enveloppe.`,
       type: 'system',
       id:   Date.now(),
     }];
@@ -75,7 +73,6 @@ export default function EchoDungeon() {
     setUi({ phase: PLAY, hp, echoes: MAX_ECHOES, noise: 0, score, floor, msgs: [...msgBuf.current] });
   }, []);
 
-  // ── player move (with cooldown guard) ──────────────────────────────────
   const handleMove = useCallback((dx, dy) => {
     if (!G.current || phase.current !== PLAY) return;
     const now = performance.now();
@@ -85,7 +82,6 @@ export default function EchoDungeon() {
     syncUi();
   }, [pushMsg, endGame, startFloor, syncUi]);
 
-  // ── echo pulse ──────────────────────────────────────────────────────────
   const handleEcho = useCallback(() => {
     if (!G.current || phase.current !== PLAY) return;
     const used = doEcho(G.current, { pushMsg });
@@ -93,7 +89,7 @@ export default function EchoDungeon() {
     syncUi();
   }, [pushMsg, syncUi]);
 
-  // ── main game loop ──────────────────────────────────────────────────────
+  // ── game loop
   const loop = useCallback((now) => {
     if (phase.current !== PLAY) return;
     const ts = TS.current;
@@ -115,13 +111,12 @@ export default function EchoDungeon() {
     raf.current = requestAnimationFrame(loop);
   }, [pushMsg, endGame]);
 
-  // start/stop RAF when phase changes
   useEffect(() => {
     if (ui.phase === PLAY) raf.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf.current);
   }, [ui.phase, loop]);
 
-  // keyboard controls
+  // keyboard
   useEffect(() => {
     if (ui.phase !== PLAY) return;
     const onKey = (e) => {
@@ -137,12 +132,14 @@ export default function EchoDungeon() {
     return () => window.removeEventListener('keydown', onKey);
   }, [ui.phase, handleMove, handleEcho]);
 
-  // ── render ──────────────────────────────────────────────────────────────
   const { phase: ph, hp, echoes, noise, score, floor, msgs } = ui;
 
-  if (ph === MENU) return <MenuScreen onStart={() => startFloor(1)} />;
+  // ── débloquer AudioContext au premier clic (politique autoplay)
+  const handleStart = () => { initAudio(); startFloor(1); };
+
+  if (ph === MENU) return <MenuScreen onStart={handleStart} />;
   if (ph === DEAD || ph === WIN)
-    return <GameOverScreen win={ph === WIN} score={score} onRestart={() => startFloor(1)} />;
+    return <GameOverScreen win={ph === WIN} score={score} onRestart={handleStart} />;
 
   return (
     <div style={{
@@ -153,19 +150,16 @@ export default function EchoDungeon() {
 
       <HUD hp={hp} echoes={echoes} noise={noise} score={score} floor={floor} />
 
-      {/* canvas + overlays */}
       <div style={{ position: 'relative', lineHeight: 0 }}>
         <canvas
           ref={cvs} width={CW} height={CH}
           style={{ display: 'block', imageRendering: 'pixelated' }}
         />
-
         {/* CRT scanlines */}
         <div style={{
           position: 'absolute', inset: 0, pointerEvents: 'none',
           background: 'repeating-linear-gradient(0deg,transparent,transparent 1px,rgba(0,0,0,.08) 1px,rgba(0,0,0,.08) 2px)',
         }} />
-
         {/* message log */}
         <div style={{
           position: 'absolute', bottom: 10, left: '50%',
@@ -188,7 +182,7 @@ export default function EchoDungeon() {
         </div>
       </div>
 
-      {/* keyboard hint bar */}
+      {/* keyboard hint */}
       <div style={{
         width: CW, padding: '4px 14px', boxSizing: 'border-box',
         background: '#000008', borderTop: '1px solid #0a0a20',
