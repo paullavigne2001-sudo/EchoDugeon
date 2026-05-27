@@ -6,16 +6,29 @@ import {
 } from '../constants.js';
 import { ENEMY_CONFIG } from '../enemies/enemyTypes.js';
 
-/**
- * Render one frame onto the given canvas context.
- * Mutates G.rings / G.waves (filters expired animations).
- * Also decays G.player.noise each frame.
- */
+// Rayon et opacité de la lueur permanente autour du joueur (Option B)
+const AMBIENT_RADIUS  = 1.5;
+const AMBIENT_OPACITY = 0.22;
+
 export function renderFrame(ctx, G, now) {
   const { grid, player, enemies, vis, waves, rings } = G;
 
-  // noise decay (visual meter)
+  // ── noise decay
   G.player.noise = Math.max(0, G.player.noise * 0.976);
+
+  // ── lueur permanente autour du joueur (toujours visible, très faible)
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const nx = player.x + dx, ny = player.y + dy;
+      if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+      const d = Math.sqrt(dx*dx + dy*dy);
+      if (d > AMBIENT_RADIUS) continue;
+      const op = AMBIENT_OPACITY * (1 - d / (AMBIENT_RADIUS + 0.5));
+      const i  = (ny * COLS + nx) * 2;
+      vis[i]   = Math.max(vis[i], op);  // ne diminue pas une révélation plus forte
+      vis[i+1] = now;                   // reset du timer → ne fane pas
+    }
+  }
 
   // ── background
   ctx.fillStyle = '#010008';
@@ -95,7 +108,7 @@ export function renderFrame(ctx, G, now) {
     return true;
   });
 
-  // ── echo waves (two concentric ripples)
+  // ── echo waves
   G.waves = waves.filter(w => {
     const age = now - w.t, dur = 700;
     if (age > dur) return false;
@@ -119,7 +132,7 @@ export function renderFrame(ctx, G, now) {
     return true;
   });
 
-  // ── enemies (only if tile is revealed)
+  // ── enemies
   enemies.forEach(e => {
     const vi  = (e.y * COLS + e.x) * 2;
     const bop = vis[vi];
@@ -134,18 +147,15 @@ export function renderFrame(ctx, G, now) {
     const ey = e.y * CS + CS/2;
     const [r, g, b] = ENEMY_CONFIG[e.type].color;
 
-    // glow
     const grd = ctx.createRadialGradient(ex, ey, 0, ex, ey, CS * 1.8);
     grd.addColorStop(0, `rgba(${r},${g},${b},${a * 0.38})`);
     grd.addColorStop(1, `rgba(${r},${g},${b},0)`);
     ctx.fillStyle = grd;
     ctx.beginPath(); ctx.arc(ex, ey, CS * 1.8, 0, Math.PI * 2); ctx.fill();
 
-    // body
     ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
     ctx.beginPath(); ctx.arc(ex, ey, CS/2 - 1, 0, Math.PI * 2); ctx.fill();
 
-    // alert marker
     if (e.state !== PATROL && a > 0.25) {
       ctx.fillStyle  = `rgba(255,242,0,${a})`;
       ctx.font       = `bold ${CS - 4}px monospace`;
@@ -154,22 +164,26 @@ export function renderFrame(ctx, G, now) {
     }
   });
 
-  // ── player
+  // ── player (toujours dessiné)
   const ppx     = player.x * CS + CS/2;
   const ppy     = player.y * CS + CS/2;
   const flicker = player.hp <= 1 ? (0.7 + 0.3 * Math.sin(now * 0.02)) : 1;
 
-  const pg = ctx.createRadialGradient(ppx, ppy, 0, ppx, ppy, CS * 3);
-  pg.addColorStop(0, `rgba(150,195,255,${0.12 * flicker})`);
+  // halo ambiant élargi
+  const pg = ctx.createRadialGradient(ppx, ppy, 0, ppx, ppy, CS * 3.5);
+  pg.addColorStop(0, `rgba(150,195,255,${0.18 * flicker})`);
+  pg.addColorStop(0.4, `rgba(100,150,220,${0.08 * flicker})`);
   pg.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = pg;
-  ctx.beginPath(); ctx.arc(ppx, ppy, CS * 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ppx, ppy, CS * 3.5, 0, Math.PI * 2); ctx.fill();
 
+  // corps
   ctx.fillStyle   = `rgba(175,215,255,${flicker})`;
   ctx.beginPath(); ctx.arc(ppx, ppy, CS/2 - 1, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = `rgba(220,238,255,${flicker})`;
   ctx.lineWidth   = 1.5; ctx.stroke();
 
+  // point central
   ctx.fillStyle = '#ffffff';
   ctx.beginPath(); ctx.arc(ppx, ppy, 2, 0, Math.PI * 2); ctx.fill();
 
@@ -180,5 +194,5 @@ export function renderFrame(ctx, G, now) {
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, CW, CH);
 
-  ctx.textAlign = 'left'; // reset default
+  ctx.textAlign = 'left';
 }
